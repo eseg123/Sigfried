@@ -1,57 +1,59 @@
 import streamlit as st
 import requests
 
-# Your API key from Streamlit Secrets
-API_KEY = st.secrets["FMP_API_KEY"]
-BASE_URL = "https://financialmodelingprep.com/api/v3"
-tickers = ["AAPL", "MSFT", "GOOGL", "TSLA", "AMZN"]
+# Fetch S&P 500 tickers
+def get_sp500_tickers():
+    url = "https://financialmodelingprep.com/api/v3/sp500_constituent"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return [company['symbol'] for company in response.json()]
+    else:
+        st.error("Failed to fetch S&P 500 tickers.")
+        return []
 
-def safe_get(data, key):
-    val = data.get(key)
-    return val if isinstance(val, (int, float)) else 0
+# Fetch financial data for a given ticker
+def get_financial_data(ticker, api_key):
+    url = f"https://financialmodelingprep.com/api/v3/ratios/{ticker}?apikey={api_key}&period=quarter"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        if data:
+            latest_data = data[0]  # Most recent quarter
+            pb_ratio = latest_data.get('priceToBookRatio', None)
+            roic = latest_data.get('returnOnInvestedCapital', None)
+            return pb_ratio, roic
+    return None, None
 
-def get_financials(ticker):
-    def fetch(endpoint):
-        url = f"{BASE_URL}/{endpoint}/{ticker}?apikey={API_KEY}&limit=1"
-        r = requests.get(url)
-        return r.json()[0] if r.ok and r.json() else {}
+# Streamlit app
+def main():
+    st.title("S&P 500 Screener: P/B & ROIC")
+    st.markdown("Screening S&P 500 stocks with P/B ratio between 0.5 and 2.0 and ROIC > 20%.")
 
-    income = fetch("income-statement")
-    balance = fetch("balance-sheet-statement")
-    profile = fetch("profile")
+    # Fetch tickers
+    tickers = get_sp500_tickers()
+    if not tickers:
+        return
 
-    ebit = safe_get(income, "ebit")
-    ca = safe_get(balance, "totalCurrentAssets")
-    ppe = safe_get(balance, "propertyPlantEquipmentNet")
-    leases = safe_get(balance, "capitalLeaseObligations")
-    lti = safe_get(balance, "longTermInvestments")
-    cl = safe_get(balance, "totalCurrentLiabilities")
-    cash = safe_get(balance, "cashAndCashEquivalents")
-    ltd = safe_get(balance, "longTermDebt")
-    ps = safe_get(balance, "preferredStock")
-    shares = safe_get(profile, "sharesOutstanding")
-    price = safe_get(profile, "price")
+    # Fetch API key from Streamlit secrets
+    api_key = st.secrets["FMP_API_KEY"]
 
-    invested_cap = ca + ppe + leases + lti - cl - cash
-    net_worth = invested_cap + cash - ltd - leases - ps
-    market_cap = shares * price
+    # Initialize results list
+    results = []
 
-    fm = market_cap / net_worth if net_worth else None
-    roic = ebit / invested_cap if invested_cap else None
+    # Iterate through tickers and fetch financial data
+    for ticker in tickers:
+        pb_ratio, roic = get_financial_data(ticker, api_key)
+        if pb_ratio and roic:
+            if 0.5 <= pb_ratio <= 2.0 and roic > 20:
+                results.append((ticker, pb_ratio, roic))
 
-    return {
-        "Ticker": ticker,
-        "Faustmann Ratio": round(fm, 2) if fm is not None else "N/A",
-        "ROIC": round(roic, 2) if roic is not None else "N/A",
-        "Pass": (fm is not None and roic is not None and fm <= 1 and roic >= 0.2)
-    }
+    # Display results
+    if results:
+        st.write(f"Found {len(results)} stocks matching criteria:")
+        for ticker, pb_ratio, roic in results:
+            st.write(f"**{ticker}** - P/B: {pb_ratio}, ROIC: {roic}%")
+    else:
+        st.write("No stocks found matching the criteria.")
 
-# Streamlit Interface
-st.title("📈 Stock Screener: Faustmann & ROIC")
-st.markdown("Filters stocks based on **Faustmann Ratio ≤ 1** and **ROIC ≥ 0.2**")
-
-results = [get_financials(t) for t in tickers]
-for r in results:
-    st.markdown(f"**{r['Ticker']}** — Faustmann: `{r['Faustmann Ratio']}`, ROIC: `{r['ROIC']}`")
-    st.markdown(f"✅ Passes Criteria: {'Yes' if r['Pass'] else 'No'}")
-    st.markdown("---")
+if __name__ == "__main__":
+    main()
