@@ -1,9 +1,3 @@
-stock_screener_streamlit/
-├── app.py
-├── requirements.txt
-import streamlit as st
-import requests
-import os
 
 API_KEY = st.secrets["FMP_API_KEY"]
 BASE_URL = "https://financialmodelingprep.com/api/v3"
